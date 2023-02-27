@@ -1,4 +1,5 @@
-# frozen_string_literal: true
+# encoding: utf-8
+
 module Crummy
   class StandardRenderer
     include ActionView::Helpers::UrlHelper
@@ -56,6 +57,7 @@ module Crummy
                                       local_global.call(crumb, options, :last_class),
                                       (crumb == crumbs.first),
                                       (crumb == crumbs.last),
+                                      local_global.call(crumb, options, :microdata),
                                       local_global.call(crumb, options, :last_crumb_linked),
                                       local_global.call(crumb, options, :truncate))}.compact.join(options[:separator]).html_safe
         crumb_string
@@ -76,7 +78,6 @@ module Crummy
                                            (crumb == crumbs.find_all{|crumb|
                                                     !last_hash.call(crumb).fetch(:right_side,false)}.compact.last),
                                            local_global.call(crumb, options, :microdata),
-                                           crumbs.find_index(crumb) + 1,
                                            local_global.call(crumb, options, :last_crumb_linked),
                                            local_global.call(crumb, options, :truncate),
                                            local_global.call(crumb, options, :separator))}.compact.join.html_safe
@@ -90,18 +91,13 @@ module Crummy
                                            (crumb == crumbs.first),
                                            (crumb == crumbs.find_all{|crumb|!local_global.call(crumb, options, :right_side)}.compact.last),
                                            local_global.call(crumb, options, :microdata),
-                                           crumbs.find_index(crumb) + 1,
                                            local_global.call(crumb, options, :last_crumb_linked),
                                            local_global.call(crumb, options, :truncate),
                                            local_global.call(crumb, options, :right_separator))}.compact.join.html_safe
-        ol_options = {}
-        ol_options[:class] = options[:ol_class]
-        ol_options[:id] = options[:ol_id]
-        if options[:microdata]
-          ol_options[:itemscope] = true
-          ol_options[:itemtype] = data_definition_url('BreadcrumbList')
-        end
-        crumb_string = content_tag(:ol, crumb_string+crumb_right_string, ol_options)
+        crumb_string = content_tag(:ol,
+                                   crumb_string+crumb_right_string,
+                                   :class => options[:ol_class],
+                                   :id => options[:ol_id])
         crumb_string
       when :xml
         crumbs.collect do |crumb|
@@ -118,7 +114,7 @@ module Crummy
 
     private
 
-    def crumb_to_html(crumb, links, first_class, last_class, is_first, is_last, last_crumb_linked, truncate)
+    def crumb_to_html(crumb, links, first_class, last_class, is_first, is_last, with_microdata, last_crumb_linked, truncate)
       html_classes = []
       html_classes << first_class if is_first
       html_classes << last_class if is_last
@@ -127,14 +123,18 @@ module Crummy
       can_link = url && links && (!is_last || last_crumb_linked)
       link_html_options = options[:link_html_options] || {}
       link_html_options[:class] = html_classes
-      if can_link
-        link_to((truncate.present? ? name.truncate(truncate) : name), url, link_html_options)
+      if with_microdata
+        item_title = content_tag(:span, (truncate.present? ? name.truncate(truncate) : name), :itemprop => "title")
+        html_options = {:itemscope => true, :itemtype => data_definition_url("Breadcrumb")}
+        link_html_options[:itemprop] = "url"
+        html_content = can_link ? link_to(item_title, url, link_html_options) : item_title
+        content_tag(:div, html_content, html_options)
       else
-        truncate.present? ? name.truncate(truncate) : name
+        can_link ? link_to((truncate.present? ? name.truncate(truncate) : name), url, link_html_options) : (truncate.present? ? name.truncate(truncate) : name)
       end
     end
 
-    def crumb_to_html_list(crumb, links, li_class, first_class, last_class, is_first, is_last, with_microdata, position, last_crumb_linked, truncate, separator='')
+    def crumb_to_html_list(crumb, links, li_class, first_class, last_class, is_first, is_last, with_microdata, last_crumb_linked, truncate, separator='')
       name, url, options = crumb
       options = {} unless options.is_a?(Hash)
       can_link = url && links && (!is_last || last_crumb_linked) && !(/<\/a/ =~ name)
@@ -146,13 +146,11 @@ module Crummy
 
       if with_microdata
         html_options[:itemscope] = true
-        html_options[:itemtype]  = data_definition_url('ListItem')
-        html_options[:itemprop]  = 'itemListElement'
-        item_title = content_tag(:span, (truncate.present? ? name.truncate(truncate) : name), itemprop: 'name')
+        html_options[:itemtype]  = data_definition_url("Breadcrumb")
+        item_title = content_tag(:span, (truncate.present? ? name.truncate(truncate) : name), :itemprop => "title")
         link_html_options = options[:link_html_options] || {}
-        link_html_options[:itemprop] = "item"
+        link_html_options[:itemprop] = "url"
         html_content = can_link ? link_to(item_title, url, link_html_options) : item_title
-        html_content << tag(:meta, itemprop: 'position', content: position)
       else
         html_content = can_link ? link_to((truncate.present? ? name.truncate(truncate) : name), url, options[:link_html_options]) : content_tag(:span, (truncate.present? ? name.truncate(truncate) : name))
       end
